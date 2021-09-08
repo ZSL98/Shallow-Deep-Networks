@@ -18,7 +18,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
-from ee_module import ee_module
+from networks import ee_module
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--data', metavar='DIR', default='../Shallow-Deep-Networks-backup/data/imagenet/ILSVRC/Data/CLS-LOC',
@@ -29,7 +29,7 @@ parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=256, type=int,
+parser.add_argument('-b', '--batch-size', default=16, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -70,6 +70,7 @@ parser.add_argument('--multiprocessing-distributed', action='store_true',
 best_acc1 = 0
 features_in_hook = []
 features_out_hook = []
+# outputs_lists = {}
 
 def main():
     args = parser.parse_args()
@@ -124,7 +125,7 @@ def main_worker(gpu, ngpus_per_node, args):
         dist.init_process_group(backend=args.dist_backend, init_method=args.dist_url,
                                 world_size=args.world_size, rank=args.rank)
     # create model
-    backbone = models.resnet18(pretrained=True, progress=True)
+    backbone = models.resnet101(pretrained=True, progress=True)
     print(len(backbone.state_dict().keys()))
     ee = ee_module()
 
@@ -157,6 +158,7 @@ def main_worker(gpu, ngpus_per_node, args):
         print("Case 3")
         # DataParallel will divide and allocate batch_size to all available GPUs
         # backbone = torch.nn.DataParallel(backbone).cuda()
+        # ee = torch.nn.DataParallel(ee).cuda()
         backbone = backbone.cuda()
         ee = ee.cuda()
 
@@ -249,7 +251,7 @@ def main_worker(gpu, ngpus_per_node, args):
             print('Save checkpoint!')
             save_checkpoint({
                 'epoch': epoch + 1,
-                'arch': "resnet18",
+                'arch': "resnet101",
                 'state_dict': ee.state_dict(),
                 'best_acc1': best_acc1,
                 'optimizer' : ee_optimizer.state_dict(),
@@ -259,13 +261,16 @@ def main_worker(gpu, ngpus_per_node, args):
 def hook(module, fea_in, fea_out):
     global features_in_hook
     global features_out_hook
+    # global outputs_lists
     features_in_hook.append(fea_in)
     features_out_hook.append(fea_out)
+    # outputs_lists[fea_in[0].device].append(fea_out)
     return None
 
 def train(train_loader, model, backbone, criterion, optimizer, epoch, args):
     global features_in_hook
     global features_out_hook
+    # global outputs_lists
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
@@ -293,7 +298,7 @@ def train(train_loader, model, backbone, criterion, optimizer, epoch, args):
         features_in_hook = []
         features_out_hook = []
 
-        layer_name = 'layer4.0.downsample.1'
+        layer_name = 'layer2.3.relu'
         for (name, module) in backbone.named_modules():
             if name == layer_name:
                 module.register_forward_hook(hook=hook)
@@ -302,12 +307,14 @@ def train(train_loader, model, backbone, criterion, optimizer, epoch, args):
         images = images.cuda()
         output = backbone(images)
 
+        # print(features_in_hook)
+        # print(features_out_hook)
         features = features_in_hook[0][0]
-        # print(features.shape)
         if args.gpu is not None:
             features = features.cuda(args.gpu, non_blocking=True)
 
         features = features.cuda()
+        print(features.size)
 
         ee_output = model(features)
         loss = criterion(ee_output, target)
@@ -331,6 +338,8 @@ def train(train_loader, model, backbone, criterion, optimizer, epoch, args):
             progress.display(i)
 
 def validate(val_loader, model, backbone, criterion, args):
+    global features_in_hook
+    global features_out_hook
     batch_time = AverageMeter('Time', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')

@@ -9,8 +9,8 @@ def hook(module, fea_in, fea_out):
     features_out_hook.append(fea_out)
     return None
 
-model = models.resnet18(pretrained=True, progress=True)
-layer_name = 'layer4.0.downsample.1'
+model = models.resnet101(pretrained=True, progress=True)
+layer_name = 'layer3.1'
 for (name, module) in model.named_modules():
     print(name)
     if name == layer_name:
@@ -19,3 +19,4 @@ for (name, module) in model.named_modules():
 x  = torch.randn([1, 3, 224, 224])
 out = model(x)
 print(features_in_hook[0][0].shape)
+print(features_out_hook[0].shape)
