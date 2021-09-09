@@ -10,7 +10,7 @@ def hook(module, fea_in, fea_out):
     return None
 
 model = models.resnet101(pretrained=True, progress=True)
-layer_name = 'layer3.1'
+layer_name = 'layer1.2.conv1'
 for (name, module) in model.named_modules():
     print(name)
     if name == layer_name:

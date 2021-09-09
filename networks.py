@@ -14,21 +14,6 @@ def fc_layer(size_in, size_out):
     )
     return layer
 
-class ee_module(nn.Module):
-    def __init__(self):
-        super(ee_module, self).__init__()
-        self.layer1 = fc_layer(128*28*28, 4096)
-        self.layer2 = fc_layer(4096, 4096)
-        self.layer3 = nn.Linear(4096, 1000)
-    
-    def forward(self, x):
-        out = x.view(x.size(0), -1)
-        out = self.layer1(out)
-        out = self.layer2(out)
-        out = self.layer3(out)
-
-        return out
-
 def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, dilation: int = 1) -> nn.Conv2d:
     """3x3 convolution with padding"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
@@ -38,6 +23,102 @@ def conv3x3(in_planes: int, out_planes: int, stride: int = 1, groups: int = 1, d
 def conv1x1(in_planes: int, out_planes: int, stride: int = 1) -> nn.Conv2d:
     """1x1 convolution"""
     return nn.Conv2d(in_planes, out_planes, kernel_size=1, stride=stride, bias=False)
+
+class exit_resnet_s1(nn.Module):
+    def __init__(self, num_classes: int = 1000):
+        super(exit_resnet_s1, self).__init__()
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.conv1x1_exit = conv1x1(256, 512)
+        self.exit = self._make_complex_exit(64)
+        self.inplanes = 64
+        self.fc_exit = nn.Linear(512, num_classes)
+
+    def _make_complex_exit(self, planes: int) -> nn.Sequential:
+        layers = []
+        self.inplanes = planes * Bottleneck.expansion
+        layers.append(Bottleneck(self.inplanes, planes))
+        return nn.Sequential(*layers)
+    
+    def forward(self, x):
+        x_exit = self.exit(x)
+        x_exit = self.conv1x1_exit(x_exit)
+        x_exit = self.avgpool(x_exit)
+        x_exit = torch.flatten(x_exit, 1)
+        x_exit = self.fc_exit(x_exit)
+
+        return x_exit
+
+class exit_resnet_s2(nn.Module):
+    def __init__(self, num_classes: int = 1000):
+        super(exit_resnet_s2, self).__init__()
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        # self.conv1x1_exit = conv1x1(256, 512)
+        self.exit = self._make_complex_exit(128)
+        self.inplanes = 64
+        self.fc_exit = nn.Linear(512, num_classes)
+
+    def _make_complex_exit(self, planes: int) -> nn.Sequential:
+        layers = []
+        self.inplanes = planes * Bottleneck.expansion
+        layers.append(Bottleneck(self.inplanes, planes))
+        return nn.Sequential(*layers)
+    
+    def forward(self, x):
+        x_exit = self.exit(x)
+        # x_exit = self.conv1x1_exit(x_exit)
+        x_exit = self.avgpool(x_exit)
+        x_exit = torch.flatten(x_exit, 1)
+        x_exit = self.fc_exit(x_exit)
+
+        return x_exit
+
+class exit_resnet_s3(nn.Module):
+    def __init__(self, num_classes: int = 1000):
+        super(exit_resnet_s3, self).__init__()
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        # self.conv1x1_exit = conv1x1(256, 512)
+        self.exit = self._make_complex_exit(256)
+        self.inplanes = 64
+        self.fc_exit = nn.Linear(1024, num_classes)
+
+    def _make_complex_exit(self, planes: int) -> nn.Sequential:
+        layers = []
+        self.inplanes = planes * Bottleneck.expansion
+        layers.append(Bottleneck(self.inplanes, planes))
+        return nn.Sequential(*layers)
+    
+    def forward(self, x):
+        x_exit = self.exit(x)
+        x_exit = self.avgpool(x_exit)
+        x_exit = torch.flatten(x_exit, 1)
+        x_exit = self.fc_exit(x_exit)
+
+        return x_exit
+
+class exit_resnet_s4(nn.Module):
+    def __init__(self, num_classes: int = 1000):
+        super(exit_resnet_s4, self).__init__()
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.conv1x1_exit = conv1x1(256, 512)
+        self.exit = self._make_complex_exit(64)
+        self.inplanes = 64
+        self.fc_exit = nn.Linear(512, num_classes)
+
+    def _make_complex_exit(self, planes: int) -> nn.Sequential:
+        layers = []
+        self.inplanes = planes * Bottleneck.expansion
+        layers.append(Bottleneck(self.inplanes, planes))
+        return nn.Sequential(*layers)
+    
+    def forward(self, x):
+        x_exit = self.exit(x)
+        x_exit = self.conv1x1_exit(x_exit)
+        x_exit = self.avgpool(x_exit)
+        x_exit = torch.flatten(x_exit, 1)
+        x_exit = self.fc_exit(x_exit)
+
+        return x_exit
+
 
 class BasicBlock(nn.Module):
     expansion: int = 1

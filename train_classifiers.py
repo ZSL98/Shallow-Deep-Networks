@@ -18,7 +18,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 
-from networks import ee_module
+from networks import exit_resnet_s1, exit_resnet_s2, exit_resnet_s3, exit_resnet_s4
 
 parser = argparse.ArgumentParser(description='PyTorch ImageNet Training')
 parser.add_argument('--data', metavar='DIR', default='../Shallow-Deep-Networks-backup/data/imagenet/ILSVRC/Data/CLS-LOC',
@@ -29,7 +29,7 @@ parser.add_argument('--epochs', default=90, type=int, metavar='N',
                     help='number of total epochs to run')
 parser.add_argument('--start-epoch', default=0, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('-b', '--batch-size', default=16, type=int,
+parser.add_argument('-b', '--batch-size', default=32, type=int,
                     metavar='N',
                     help='mini-batch size (default: 256), this is the total '
                          'batch size of all GPUs on the current node when '
@@ -43,7 +43,7 @@ parser.add_argument('--wd', '--weight-decay', default=1e-4, type=float,
                     dest='weight_decay')
 parser.add_argument('-p', '--print-freq', default=10, type=int,
                     metavar='N', help='print frequency (default: 10)')
-parser.add_argument('--resume', default='', type=str, metavar='PATH',
+parser.add_argument('--resume', default='./checkpoint.pth.tar', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
@@ -127,7 +127,7 @@ def main_worker(gpu, ngpus_per_node, args):
     # create model
     backbone = models.resnet101(pretrained=True, progress=True)
     print(len(backbone.state_dict().keys()))
-    ee = ee_module()
+    ee = exit_resnet_s3()
 
     if not torch.cuda.is_available():
         print('using CPU, this will be slow')
@@ -274,7 +274,7 @@ def train(train_loader, model, backbone, criterion, optimizer, epoch, args):
     batch_time = AverageMeter('Time', ':6.3f')
     data_time = AverageMeter('Data', ':6.3f')
     losses = AverageMeter('Loss', ':.4e')
-    top1 = AverageMeter('Acc@1',     ':6.2f')
+    top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
     progress = ProgressMeter(
         len(train_loader),
@@ -298,7 +298,7 @@ def train(train_loader, model, backbone, criterion, optimizer, epoch, args):
         features_in_hook = []
         features_out_hook = []
 
-        layer_name = 'layer2.3.relu'
+        layer_name = 'layer3.17.conv1'
         for (name, module) in backbone.named_modules():
             if name == layer_name:
                 module.register_forward_hook(hook=hook)
@@ -314,13 +314,12 @@ def train(train_loader, model, backbone, criterion, optimizer, epoch, args):
             features = features.cuda(args.gpu, non_blocking=True)
 
         features = features.cuda()
-        print(features.size)
 
         ee_output = model(features)
         loss = criterion(ee_output, target)
 
         # measure accuracy and record loss
-        acc1, acc5 = accuracy(ee_output, target, topk=(1, 5))
+        acc1, acc5, a_, r_ = accuracy(ee_output, target, topk=(1, 5))
         losses.update(loss.item(), features.size(0))
         top1.update(acc1[0], features.size(0))
         top5.update(acc5[0], features.size(0))
@@ -344,9 +343,11 @@ def validate(val_loader, model, backbone, criterion, args):
     losses = AverageMeter('Loss', ':.4e')
     top1 = AverageMeter('Acc@1', ':6.2f')
     top5 = AverageMeter('Acc@5', ':6.2f')
+    pass_acc1 = AverageMeter('Acc@Pass', ':6.2f')
+    pass_ratio1 = AverageMeter('Ratio@Pass', ':6.2f')
     progress = ProgressMeter(
         len(val_loader),
-        [batch_time, losses, top1, top5],
+        [batch_time, losses, top1, top5, pass_acc1, pass_ratio1],
         prefix='Test: ')
 
     # switch to evaluate mode
@@ -365,7 +366,7 @@ def validate(val_loader, model, backbone, criterion, args):
             features_in_hook = []
             features_out_hook = []
 
-            layer_name = 'layer4.0.downsample.1'
+            layer_name = 'layer3.17.conv1'
             for (name, module) in backbone.named_modules():
                 if name == layer_name:
                     module.register_forward_hook(hook=hook)
@@ -385,10 +386,12 @@ def validate(val_loader, model, backbone, criterion, args):
             loss = criterion(ee_output, target)
 
             # measure accuracy and record loss
-            acc1, acc5 = accuracy(ee_output, target, topk=(1, 5))
+            acc1, acc5, p_acc, p_ratio = accuracy(ee_output, target, topk=(1, 5))
             losses.update(loss.item(), images.size(0))
             top1.update(acc1[0], images.size(0))
             top5.update(acc5[0], images.size(0))
+            pass_acc1.update(p_acc, images.size(0))
+            pass_ratio1.update(p_ratio, images.size(0))
 
             # measure elapsed time
             batch_time.update(time.time() - end)
@@ -460,6 +463,23 @@ def accuracy(output, target, topk=(1,)):
         maxk = max(topk)
         batch_size = target.size(0)
 
+        confidence = 0.5
+        m = nn.Softmax(dim=1)
+        softmax_output = m(output)
+
+        pass_indicator = torch.max(softmax_output, 1)[0] > confidence
+        pass_cnt = sum(pass_indicator)
+        correct_indicator = torch.max(softmax_output, 1)[1] == target
+        pass_correct_indicator = pass_indicator & correct_indicator
+        pass_correct_cnt = sum(pass_correct_indicator)
+        # print(str(int(pass_correct_cnt)) + '/' + str(int(pass_cnt)))
+        if pass_cnt != 0:
+            pass_acc = pass_correct_cnt.float().mul_(100.0 / pass_cnt)
+        else:
+            pass_acc = torch.tensor(0.0)
+        # print(pass_acc)
+
+
         _, pred = output.topk(maxk, 1, True, True)
         pred = pred.t()
         correct = pred.eq(target.view(1, -1).expand_as(pred))
@@ -468,6 +488,8 @@ def accuracy(output, target, topk=(1,)):
         for k in topk:
             correct_k = correct[:k].reshape(-1).float().sum(0, keepdim=True)
             res.append(correct_k.mul_(100.0 / batch_size))
+        res.append(pass_acc)
+        res.append(pass_cnt/batch_size)
         return res
 
 # def main():
